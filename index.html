@@ -92,6 +92,7 @@
         const SINGLE_BALL_COLORS = ['white', 'black'];
         const BALL_EDGE_COLOR = '#00000080';
         const BLACK_BALL_EDGE_COLOR = '#D3D3D366';
+        const GHOST_BALL_ALPHA = 0.5;
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -126,6 +127,7 @@
 
         let balls = [];
         let selectedColor = 'white';
+        let cursor = null;
 
         function drawRails() {
             const { x, y, width, height, railWidth, cushionWidth } = poolTable;
@@ -305,16 +307,30 @@
             }
         }
 
+        function drawBall(ball) {
+            ctx.fillStyle = BALL_COLORS[ball.color];
+            ctx.strokeStyle = ball.color === 'black' ? BLACK_BALL_EDGE_COLOR : BALL_EDGE_COLOR;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+
         function drawBalls() {
-            balls.forEach(ball => {
-                ctx.fillStyle = BALL_COLORS[ball.color];
-                ctx.strokeStyle = ball.color === 'black' ? BLACK_BALL_EDGE_COLOR : BALL_EDGE_COLOR;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-            });
+            balls.forEach(drawBall);
+        }
+
+        // Previews where a click would place the selected ball.
+        function drawGhostBall() {
+            if (!cursor) return;
+
+            const ghost = findPlacement(cursor.x, cursor.y, selectedColor);
+            if (!ghost) return;
+
+            ctx.globalAlpha = GHOST_BALL_ALPHA;
+            drawBall(ghost);
+            ctx.globalAlpha = 1;
         }
 
         function drawPool() {
@@ -326,6 +342,7 @@
             drawDiamonds();
             drawPockets();
             drawBalls();
+            drawGhostBall();
         }
 
         function clamp(value, min, max) {
@@ -340,13 +357,13 @@
             };
         }
 
-        function overlapsBall(spot) {
-            return balls.some(ball => Math.hypot(ball.x - spot.x, ball.y - spot.y) < BALL_RADIUS * 2);
+        function overlapsBall(spot, others) {
+            return others.some(ball => Math.hypot(ball.x - spot.x, ball.y - spot.y) < BALL_RADIUS * 2);
         }
 
         // Searches outward in rings for the nearest spot on the surface that doesn't
         // overlap a ball, about 1px apart. Returns null if the table is full.
-        function findFreeSpot(x, y) {
+        function findFreeSpot(x, y, others) {
             const maxDistance = Math.hypot(poolTable.width, poolTable.height);
 
             for (let distance = 0; distance <= maxDistance; distance++) {
@@ -354,29 +371,46 @@
                 for (let i = 0; i < steps; i++) {
                     const angle = (i / steps) * Math.PI * 2;
                     const spot = clampToSurface(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance);
-                    if (!overlapsBall(spot)) return spot;
+                    if (!overlapsBall(spot, others)) return spot;
                 }
             }
             return null;
         }
 
+        // A new white or black ball replaces the old one.
+        function ballsKeptWhenPlacing(color) {
+            return SINGLE_BALL_COLORS.includes(color) ? balls.filter(ball => ball.color !== color) : balls;
+        }
+
+        // Returns the ball a click would place, or null if there is no room for it.
+        function findPlacement(x, y, color) {
+            const others = ballsKeptWhenPlacing(color);
+            if (others.length >= MAX_BALLS) return null;
+
+            const spot = findFreeSpot(x, y, others);
+            return spot && { ...spot, color };
+        }
+
         function placeBall(x, y, color) {
-            // A new white or black ball replaces the old one.
-            if (SINGLE_BALL_COLORS.includes(color)) {
-                balls = balls.filter(ball => ball.color !== color);
-            }
+            const ball = findPlacement(x, y, color);
+            if (!ball) return;
 
-            if (balls.length >= MAX_BALLS) return;
-
-            const spot = findFreeSpot(x, y);
-            if (!spot) return;
-
-            balls.push({ ...spot, color });
+            balls = [...ballsKeptWhenPlacing(color), ball];
             drawPool();
         }
 
         canvas.addEventListener('click', event => {
             placeBall(event.offsetX, event.offsetY, selectedColor);
+        });
+
+        canvas.addEventListener('mousemove', event => {
+            cursor = { x: event.offsetX, y: event.offsetY };
+            drawPool();
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            cursor = null;
+            drawPool();
         });
 
         const ballPickers = document.querySelectorAll('.ball-picker');

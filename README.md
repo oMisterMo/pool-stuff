@@ -11,7 +11,7 @@ Early work in progress. So far the table is drawn and balls can be placed on it:
 - Four corner pockets and two side pockets
 - Diamonds on the rails, lined up with the grid lines
 - An 8×4 grid on the cloth, with a thicker baulk line
-- White, red, yellow and black balls: pick a colour below the table, then click the table to place one. Placing a white or black ball replaces the current one of that colour, and a ball placed on top of another is pushed out to the nearest free spot. The table holds up to 50 balls. The clear buttons remove one colour or all balls
+- White, red, yellow and black balls: pick a colour below the table, then click the table to place one. A see-through ghost ball shows where it will land. Placing a white or black ball replaces the current one of that colour, and a ball placed on top of another is pushed out to the nearest free spot. The table holds up to 50 balls. The clear buttons remove one colour or all balls
 
 The **Play** and **Reset** buttons are on the page but don't do anything yet. There are no physics or rules.
 
@@ -32,6 +32,7 @@ All the code is in `index.html`: the page markup, styles and script.
 | `drawDiamonds` | Rail diamonds, using `drawDiamond` |
 | `drawPockets` | All six pockets |
 | `drawBalls` | Placed balls |
+| `drawGhostBall` | Preview of the selected ball at the cursor |
 
 `drawPool` calls these in order, and later layers paint over earlier ones.
 
