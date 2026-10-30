@@ -17,7 +17,7 @@
             border: 1px solid #555;
         } */
 
-        #controls, #ball-controls, #clear-controls {
+        #controls, #ball-controls, #clear-controls, #export-controls {
             margin-top: 20px;
             text-align: center;
 
@@ -64,6 +64,10 @@
             <button class="clear-balls" data-color="yellow">Clear Yellow</button>
             <button class="clear-balls" data-color="black">Clear Black</button>
             <button class="clear-balls">Clear All</button>
+        </div>
+
+        <div id="export-controls">
+            <button id="export">Export PNG</button>
         </div>
     </div>
 
@@ -430,6 +434,19 @@
         document.querySelectorAll('.clear-balls').forEach(button => {
             button.addEventListener('click', () => clearBalls(button.dataset.color));
         });
+
+        function exportPng() {
+            // Keeps the ghost ball out of the image.
+            cursor = null;
+            drawPool();
+
+            const link = document.createElement('a');
+            link.href = canvas.toDataURL('image/png');
+            link.download = 'pool-table.png';
+            link.click();
+        }
+
+        document.getElementById('export').addEventListener('click', exportPng);
 
         resizeCanvas();
         drawPool();
