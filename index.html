@@ -38,7 +38,17 @@
 
             button.selected {
                 outline: 3px solid #222;
+                outline-offset: 2px;
             }
+        }
+
+        #ball-controls .ball-picker {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            border: 1px solid;
+            border-radius: 50%;
+            vertical-align: middle;
         }
     </style>
 </head>
@@ -52,10 +62,10 @@
         </div> -->
 
         <div id="ball-controls">
-            <button class="ball-picker selected" data-color="white">White</button>
-            <button class="ball-picker" data-color="red">Red</button>
-            <button class="ball-picker" data-color="yellow">Yellow</button>
-            <button class="ball-picker" data-color="black">Black</button>
+            <button class="ball-picker selected" data-color="white" aria-label="White ball" title="White ball"></button>
+            <button class="ball-picker" data-color="red" aria-label="Red ball" title="Red ball"></button>
+            <button class="ball-picker" data-color="yellow" aria-label="Yellow ball" title="Yellow ball"></button>
+            <button class="ball-picker" data-color="black" aria-label="Black ball" title="Black ball"></button>
         </div>
 
         <div id="clear-controls">
@@ -311,9 +321,13 @@
             }
         }
 
+        function ballEdgeColor(color) {
+            return color === 'black' ? BLACK_BALL_EDGE_COLOR : BALL_EDGE_COLOR;
+        }
+
         function drawBall(ball) {
             ctx.fillStyle = BALL_COLORS[ball.color];
-            ctx.strokeStyle = ball.color === 'black' ? BLACK_BALL_EDGE_COLOR : BALL_EDGE_COLOR;
+            ctx.strokeStyle = ballEdgeColor(ball.color);
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
@@ -419,6 +433,8 @@
 
         const ballPickers = document.querySelectorAll('.ball-picker');
         ballPickers.forEach(picker => {
+            picker.style.backgroundColor = BALL_COLORS[picker.dataset.color];
+            picker.style.borderColor = ballEdgeColor(picker.dataset.color);
             picker.addEventListener('click', () => {
                 selectedColor = picker.dataset.color;
                 ballPickers.forEach(other => other.classList.toggle('selected', other === picker));
