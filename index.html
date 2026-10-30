@@ -55,12 +55,14 @@
             <button class="ball-picker selected" data-color="white">White</button>
             <button class="ball-picker" data-color="red">Red</button>
             <button class="ball-picker" data-color="yellow">Yellow</button>
+            <button class="ball-picker" data-color="black">Black</button>
         </div>
 
         <div id="clear-controls">
             <button class="clear-balls" data-color="white">Clear White</button>
             <button class="clear-balls" data-color="red">Clear Red</button>
             <button class="clear-balls" data-color="yellow">Clear Yellow</button>
+            <button class="clear-balls" data-color="black">Clear Black</button>
             <button class="clear-balls">Clear All</button>
         </div>
     </div>
@@ -83,9 +85,13 @@
         const BALL_COLORS = {
             white: '#F5F5F5',
             red: '#C8102E',
-            yellow: '#FFD100'
+            yellow: '#FFD100',
+            black: '#111111'
         };
+        // Only one of each of these can be on the table.
+        const SINGLE_BALL_COLORS = ['white', 'black'];
         const BALL_EDGE_COLOR = '#00000080';
+        const BLACK_BALL_EDGE_COLOR = '#D3D3D366';
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -302,7 +308,7 @@
         function drawBalls() {
             balls.forEach(ball => {
                 ctx.fillStyle = BALL_COLORS[ball.color];
-                ctx.strokeStyle = BALL_EDGE_COLOR;
+                ctx.strokeStyle = ball.color === 'black' ? BLACK_BALL_EDGE_COLOR : BALL_EDGE_COLOR;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
@@ -355,10 +361,9 @@
         }
 
         function placeBall(x, y, color) {
-            // There is only one white ball, so a new one replaces the old one.
-            if (color === 'white') {
-                const whiteIndex = balls.findIndex(ball => ball.color === 'white');
-                if (whiteIndex !== -1) balls.splice(whiteIndex, 1);
+            // A new white or black ball replaces the old one.
+            if (SINGLE_BALL_COLORS.includes(color)) {
+                balls = balls.filter(ball => ball.color !== color);
             }
 
             if (balls.length >= MAX_BALLS) return;
