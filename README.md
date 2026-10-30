@@ -1,18 +1,19 @@
 # 8 Ball Pool
 
-A browser-based 8 ball pool game, drawn on an HTML canvas with plain JavaScript. There are no dependencies or build step.
+A browser-based 8 ball pool collection of tips, guides, drills and more. Drawn on an HTML canvas with plain JavaScript. There are no dependencies or build step.
 
 ## Status
 
-Early work in progress. So far only the table is drawn:
+Early work in progress. So far the table is drawn and balls can be placed on it:
 
 - Wooden long and short rails
 - Cushions with angled ends at the pockets
 - Four corner pockets and two side pockets
 - Diamonds on the rails, lined up with the grid lines
 - An 8×4 grid on the cloth, with a thicker baulk line
+- White, red and yellow balls: pick a colour below the table, then click the table to place one. Placing a white ball replaces the current one, and a ball placed on top of another is pushed out to the nearest free spot. **Clear** removes them all
 
-The **Play** and **Reset** buttons are on the page but don't do anything yet. There are no balls, physics or game rules.
+The **Play** and **Reset** buttons are on the page but don't do anything yet. There are no physics or rules.
 
 ## Running
 
@@ -30,6 +31,7 @@ All the code is in `index.html`: the page markup, styles and script.
 | `drawCushions` | All six cushions, using `drawCushion` |
 | `drawDiamonds` | Rail diamonds, using `drawDiamond` |
 | `drawPockets` | All six pockets |
+| `drawBalls` | Placed balls |
 
 `drawPool` calls these in order, and later layers paint over earlier ones.
 
