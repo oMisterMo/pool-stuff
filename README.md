@@ -11,7 +11,7 @@ Early work in progress. So far the table is drawn and balls can be placed on it:
 - Four corner pockets and two side pockets
 - Diamonds on the rails, lined up with the grid lines
 - An 8×4 grid on the cloth, with a thicker baulk line
-- White, red and yellow balls: pick a colour below the table, then click the table to place one. Placing a white ball replaces the current one, and a ball placed on top of another is pushed out to the nearest free spot. **Clear** removes them all
+- White, red and yellow balls: pick a colour below the table, then click the table to place one. Placing a white ball replaces the current one, and a ball placed on top of another is pushed out to the nearest free spot. The table holds up to 50 balls. The clear buttons remove one colour or all balls
 
 The **Play** and **Reset** buttons are on the page but don't do anything yet. There are no physics or rules.
 
