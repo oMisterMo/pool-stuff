@@ -449,6 +449,8 @@
 
         canvas.addEventListener('click', event => {
             placeBall(event.offsetX, event.offsetY, selectedColor);
+            cursor = null;
+            drawPool();
         });
 
         canvas.addEventListener('mousemove', event => {
