@@ -17,7 +17,7 @@
             border: 1px solid #555;
         } */
 
-        #controls, #ball-controls, #clear-controls, #export-controls {
+        #controls, #ball-controls, #snap-controls, #clear-controls, #export-controls {
             margin-top: 20px;
             text-align: center;
 
@@ -68,6 +68,10 @@
             <button class="ball-picker" data-color="black" aria-label="Black ball" title="Black ball"></button>
         </div>
 
+        <div id="snap-controls">
+            <label><input type="checkbox" id="snap"> Snap</label>
+        </div>
+
         <div id="clear-controls">
             <button class="clear-balls" data-color="white">Clear White</button>
             <button class="clear-balls" data-color="red">Clear Red</button>
@@ -110,6 +114,7 @@
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const snapCheckbox = document.getElementById('snap');
 
         function resizeCanvas() {
             canvas.width = WIDTH;
@@ -395,6 +400,31 @@
             return null;
         }
 
+        // Finds the nearest free snap point. These are spaced half a quad apart, so
+        // they cover the grid lines, the quad centres and the table edges, where the
+        // ball rests against the cushion. Returns null if every snap point is taken.
+        function findFreeSnapSpot(x, y, others) {
+            const columns = NO_OF_COLUMNS * 2;
+            const rows = NO_OF_ROWS * 2;
+            let nearest = null;
+            let nearestDistance = Infinity;
+
+            for (let i = 0; i <= columns; i++) {
+                for (let j = 0; j <= rows; j++) {
+                    const spot = clampToSurface(
+                        poolTable.x + (i * poolTable.width) / columns,
+                        poolTable.y + (j * poolTable.height) / rows
+                    );
+                    const distance = Math.hypot(spot.x - x, spot.y - y);
+                    if (distance < nearestDistance && !overlapsBall(spot, others)) {
+                        nearest = spot;
+                        nearestDistance = distance;
+                    }
+                }
+            }
+            return nearest;
+        }
+
         // A new white or black ball replaces the old one.
         function ballsKeptWhenPlacing(color) {
             return SINGLE_BALL_COLORS.includes(color) ? balls.filter(ball => ball.color !== color) : balls;
@@ -405,7 +435,7 @@
             const others = ballsKeptWhenPlacing(color);
             if (others.length >= MAX_BALLS) return null;
 
-            const spot = findFreeSpot(x, y, others);
+            const spot = snapCheckbox.checked ? findFreeSnapSpot(x, y, others) : findFreeSpot(x, y, others);
             return spot && { ...spot, color };
         }
 
@@ -430,6 +460,8 @@
             cursor = null;
             drawPool();
         });
+
+        snapCheckbox.addEventListener('change', drawPool);
 
         const ballPickers = document.querySelectorAll('.ball-picker');
         ballPickers.forEach(picker => {
