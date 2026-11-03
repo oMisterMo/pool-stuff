@@ -17,7 +17,7 @@
             border: 1px solid #555;
         } */
 
-        #controls, #ball-controls, #snap-controls, #clear-controls, #export-controls {
+        #controls, #ball-controls, #snap-controls, #clear-controls, #theme-controls, #export-controls {
             margin-top: 20px;
             text-align: center;
 
@@ -80,6 +80,10 @@
             <button class="clear-balls">Clear All</button>
         </div>
 
+        <div id="theme-controls">
+            <button id="theme">Theme: Classic Green</button>
+        </div>
+
         <div id="export-controls">
             <button id="export">Export PNG</button>
         </div>
@@ -92,7 +96,6 @@
         const LINE_COLOR = '#FFFFFF1A';
         const BAULK_LINE_COLOR = '#FFFFFF66';
         const POCKET_COLOR = '#0A0A0A';
-        const DIAMOND_COLOR = '#F3E9D2';
 
         const NO_OF_COLUMNS = 8;
         const NO_OF_ROWS = 4;
@@ -134,16 +137,60 @@
             cornerJaw: 20.5,
             sideJaw: 18,
             // How much narrower the side pocket gets from nose to back of cushion
-            sideJawTaper: 5,
-            color: '#006400',
-            cushionColor: '#003D00',
-            cushionEdgeColor: '#2E8B2E',
-            railColor: '#5C3317',
-            railEdgeColor: '#3A1F0D'
+            sideJawTaper: 5
         };
         poolTable.x = (WIDTH - poolTable.width) / 2;
         poolTable.y = (HEIGHT - poolTable.height) / 2;
 
+        const THEMES = [
+            {
+                name: 'Classic Green',
+                clothColor: '#006400',
+                cushionColor: '#003D00',
+                cushionEdgeColor: '#2E8B2E',
+                railColor: '#5C3317',
+                railEdgeColor: '#3A1F0D',
+                diamondColor: '#F3E9D2'
+            },
+            {
+                name: 'Tournament Blue',
+                clothColor: '#1F5FA8',
+                cushionColor: '#143F70',
+                cushionEdgeColor: '#4A86CC',
+                railColor: '#2B2B2B',
+                railEdgeColor: '#111111',
+                diamondColor: '#E0E0E0'
+            },
+            {
+                name: 'Burgundy',
+                clothColor: '#7A1E2C',
+                cushionColor: '#4F121C',
+                cushionEdgeColor: '#A3384A',
+                railColor: '#3B2414',
+                railEdgeColor: '#24150B',
+                diamondColor: '#E8D9A8'
+            },
+            {
+                name: 'Slate Grey',
+                clothColor: '#4A5560',
+                cushionColor: '#323A42',
+                cushionEdgeColor: '#6E7B88',
+                railColor: '#1C1C1C',
+                railEdgeColor: '#000000',
+                diamondColor: '#C0C0C0'
+            },
+            {
+                name: 'Maple Teal',
+                clothColor: '#00757A',
+                cushionColor: '#004E52',
+                cushionEdgeColor: '#2FA3A8',
+                railColor: '#C89B5E',
+                railEdgeColor: '#8E6A3A',
+                diamondColor: '#4A2E14'
+            }
+        ];
+
+        let theme = THEMES[0];
         let balls = [];
         let selectedColor = 'white';
         let cursor = null;
@@ -152,8 +199,8 @@
             const { x, y, width, height, railWidth, cushionWidth } = poolTable;
             const border = railWidth + cushionWidth;
 
-            ctx.fillStyle = poolTable.railColor;
-            ctx.strokeStyle = poolTable.railEdgeColor;
+            ctx.fillStyle = theme.railColor;
+            ctx.strokeStyle = theme.railEdgeColor;
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.roundRect(x - border, y - border, width + border * 2, height + border * 2, 16);
@@ -164,7 +211,7 @@
         function drawCloth() {
             const { x, y, width, height, cushionWidth } = poolTable;
 
-            ctx.fillStyle = poolTable.color;
+            ctx.fillStyle = theme.clothColor;
             ctx.fillRect(x - cushionWidth, y - cushionWidth, width + cushionWidth * 2, height + cushionWidth * 2);
         }
 
@@ -249,7 +296,7 @@
             const length = Math.hypot(end.x - start.x, end.y - start.y);
             const along = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
 
-            ctx.fillStyle = poolTable.cushionColor;
+            ctx.fillStyle = theme.cushionColor;
             ctx.beginPath();
             ctx.moveTo(start.x, start.y);
             ctx.lineTo(start.x + back.x * depth + along.x * startOffset, start.y + back.y * depth + along.y * startOffset);
@@ -259,7 +306,7 @@
             ctx.fill();
 
             // Highlight the nose, the edge the balls actually hit
-            ctx.strokeStyle = poolTable.cushionEdgeColor;
+            ctx.strokeStyle = theme.cushionEdgeColor;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(start.x, start.y);
@@ -297,7 +344,7 @@
         function drawDiamond(centerX, centerY) {
             const size = 5;
 
-            ctx.fillStyle = DIAMOND_COLOR;
+            ctx.fillStyle = theme.diamondColor;
             ctx.beginPath();
             ctx.moveTo(centerX, centerY - size);
             ctx.lineTo(centerX + size, centerY);
@@ -484,6 +531,16 @@
         document.querySelectorAll('.clear-balls').forEach(button => {
             button.addEventListener('click', () => clearBalls(button.dataset.color));
         });
+
+        const themeButton = document.getElementById('theme');
+
+        function nextTheme() {
+            theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+            themeButton.textContent = `Theme: ${theme.name}`;
+            drawPool();
+        }
+
+        themeButton.addEventListener('click', nextTheme);
 
         function exportPng() {
             // Keeps the ghost ball out of the image.
