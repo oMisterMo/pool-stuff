@@ -190,7 +190,25 @@
             }
         ];
 
-        let theme = THEMES[0];
+        const THEME_STORAGE_KEY = 'poolTableTheme';
+
+        // Storage can be unavailable (e.g. blocked for file:// pages), so fall back quietly.
+        function loadTheme() {
+            try {
+                const name = localStorage.getItem(THEME_STORAGE_KEY);
+                return THEMES.find(theme => theme.name === name) ?? THEMES[0];
+            } catch {
+                return THEMES[0];
+            }
+        }
+
+        function saveTheme() {
+            try {
+                localStorage.setItem(THEME_STORAGE_KEY, theme.name);
+            } catch {}
+        }
+
+        let theme = loadTheme();
         let balls = [];
         let selectedColor = 'white';
         let cursor = null;
@@ -534,13 +552,19 @@
 
         const themeButton = document.getElementById('theme');
 
+        function showThemeName() {
+            themeButton.textContent = `Theme: ${theme.name}`;
+        }
+
         function nextTheme() {
             theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-            themeButton.textContent = `Theme: ${theme.name}`;
+            saveTheme();
+            showThemeName();
             drawPool();
         }
 
         themeButton.addEventListener('click', nextTheme);
+        showThemeName();
 
         function exportPng() {
             // Keeps the ghost ball out of the image.
