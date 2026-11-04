@@ -13,7 +13,7 @@ body {
 .container {
     width: 100%;
     max-width: 800px;
-    padding-bottom: 20px;
+    /* padding-bottom: 20px; */
 }
 
 /* Scales the canvas down to fit narrow screens. The drawing stays 800x600,
