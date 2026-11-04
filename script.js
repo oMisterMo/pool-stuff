@@ -420,18 +420,31 @@ function placeBall(x, y, color) {
     drawPool();
 }
 
+// The canvas is scaled by CSS on small screens, so pointer positions are
+// converted from displayed pixels to drawing pixels.
+function toCanvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (event.clientX - rect.left) * (WIDTH / rect.width),
+        y: (event.clientY - rect.top) * (HEIGHT / rect.height)
+    };
+}
+
 canvas.addEventListener('click', event => {
-    placeBall(event.offsetX, event.offsetY, selectedColor);
+    const point = toCanvasPoint(event);
+    placeBall(point.x, point.y, selectedColor);
     cursor = null;
     drawPool();
 });
 
-canvas.addEventListener('mousemove', event => {
-    cursor = { x: event.offsetX, y: event.offsetY };
+// Touch has no hover, so the ghost ball only follows a mouse or pen.
+canvas.addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch') return;
+    cursor = toCanvasPoint(event);
     drawPool();
 });
 
-canvas.addEventListener('mouseleave', () => {
+canvas.addEventListener('pointerleave', () => {
     cursor = null;
     drawPool();
 });

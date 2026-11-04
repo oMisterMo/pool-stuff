@@ -10,12 +10,32 @@ body {
     border: 1px solid #555;
 } */
 
+.container {
+    width: 100%;
+    max-width: 800px;
+    padding-bottom: 20px;
+}
+
+/* Scales the canvas down to fit narrow screens. The drawing stays 800x600,
+   so script.js maps pointer positions back onto it. */
+#canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* Stops double-tap zoom so quick taps each place a ball */
+    touch-action: manipulation;
+}
+
 #controls, #ball-controls, #snap-controls, #clear-controls, #theme-controls, #export-controls {
     margin-top: 20px;
-    text-align: center;
+    padding: 0 10px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
 
     button {
-        margin: 0 5px;
         padding: 10px 15px;
         font-size: 16px;
         border: none;
@@ -25,8 +45,11 @@ body {
         cursor: pointer;
     }
 
-    button:hover {
-        background-color: #45a049;
+    /* Only for real hover, so the colour doesn't stick after a tap */
+    @media (hover: hover) {
+        button:hover {
+            background-color: #45a049;
+        }
     }
 
     button.selected {
@@ -41,5 +64,18 @@ body {
     padding: 0;
     border: 1px solid;
     border-radius: 50%;
-    vertical-align: middle;
+}
+
+/* Bigger tap targets for touch screens */
+@media (pointer: coarse) {
+    #ball-controls .ball-picker {
+        width: 44px;
+        height: 44px;
+    }
+
+    #snap-controls input {
+        width: 24px;
+        height: 24px;
+        vertical-align: middle;
+    }
 }
