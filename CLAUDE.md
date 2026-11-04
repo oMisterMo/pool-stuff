@@ -8,7 +8,7 @@ There is no build, lint or test tooling, and no dependencies. To run the game, o
 
 ## Architecture
 
-Everything is in `index.html`: markup, styles and one inline script that draws on load and redraws when balls change or the cursor moves over the canvas. There is no animation loop yet. The `#play` and `#reset` buttons have no handlers, and there are no physics or rules.
+`index.html` holds the markup, `style.css` the styles and `script.js` the code, loaded at the end of `<body>` so the elements it looks up already exist. The icons are `favicon.svg` and `apple-touch-icon.png`, a 180×180 PNG of the same 8-ball on a light grey background. The script draws on load and redraws when balls change or the cursor moves over the canvas. There is no animation loop yet. The `#play` and `#reset` buttons have no handlers, and there are no physics or rules.
 
 - **Coordinates:** `poolTable.x`, `y`, `width` and `height` describe the playing surface (the 2:1 area between the cushion noses), not the outer table. Cushions and rails are drawn outward from it, so use these values as the bounce boundaries for ball physics. `clampToSurface` clamps ball centres to these bounds inset by `BALL_RADIUS`, and `findPlacement` works out where a ball would land, for both placing and the ghost ball.
 - **Draw order:** `drawPool` paints in layers, so the order of its calls matters. Pockets are drawn over the cushions and rails, and balls are drawn next, with the ghost ball last.

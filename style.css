@@ -1,0 +1,45 @@
+body {
+    margin: 0;
+    /* background-color: #222; */
+    display: flex;
+    justify-content: center;
+    /* margin-top: 50px; */
+}
+
+/* canvas {
+    border: 1px solid #555;
+} */
+
+#controls, #ball-controls, #snap-controls, #clear-controls, #theme-controls, #export-controls {
+    margin-top: 20px;
+    text-align: center;
+
+    button {
+        margin: 0 5px;
+        padding: 10px 15px;
+        font-size: 16px;
+        border: none;
+        border-radius: 5px;
+        background-color: #4CAF50;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background-color: #45a049;
+    }
+
+    button.selected {
+        outline: 3px solid #222;
+        outline-offset: 2px;
+    }
+}
+
+#ball-controls .ball-picker {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid;
+    border-radius: 50%;
+    vertical-align: middle;
+}
