@@ -26,6 +26,12 @@ body {
     touch-action: manipulation;
 }
 
+/* Lets a finger drag out an arrow without scrolling the page */
+#canvas.arrow-mode {
+    touch-action: none;
+    cursor: crosshair;
+}
+
 #controls, #ball-controls, #snap-controls, #clear-controls, #theme-controls, #export-controls {
     margin-top: 20px;
     padding: 0 10px;

@@ -23,9 +23,20 @@ const BALL_EDGE_COLOR = '#00000080';
 const BLACK_BALL_EDGE_COLOR = '#D3D3D366';
 const GHOST_BALL_ALPHA = 0.5;
 
+const ARROW_COLOR = 'black';
+const ARROW_OUTLINE_COLOR = '#00000080';
+const ARROW_WIDTH = 1;
+const ARROW_HEAD_LENGTH = 7;
+const ARROW_HEAD_WIDTH = 8;
+// Shorter drags are treated as a mis-tap and dropped.
+const MIN_ARROW_LENGTH = BALL_RADIUS * 2;
+// Extra reach around a ball when starting an arrow, so it's easy to hit by touch.
+const ARROW_GRAB_MARGIN = 6;
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const snapCheckbox = document.getElementById('snap');
+const arrowModeCheckbox = document.getElementById('arrow-mode');
 
 function resizeCanvas() {
     canvas.width = WIDTH;
@@ -120,6 +131,11 @@ let theme = loadTheme();
 let balls = [];
 let selectedColor = 'white';
 let cursor = null;
+// Each arrow is { ball, x, y, target }: it starts at `ball` and points to (x, y).
+// `target` is the ball the tip snapped to, if any.
+let arrows = [];
+// The arrow being dragged out in arrow mode, if any.
+let draftArrow = null;
 
 function drawRails() {
     const { x, y, width, height, railWidth, cushionWidth } = poolTable;
@@ -317,9 +333,57 @@ function drawBalls() {
     balls.forEach(drawBall);
 }
 
+// Draws an arrow from the edge of its ball to its tip.
+function drawArrow(arrow) {
+    const { ball, x: tipX, y: tipY } = arrow;
+    const length = Math.hypot(tipX - ball.x, tipY - ball.y);
+    if (length <= BALL_RADIUS) return;
+
+    const dirX = (tipX - ball.x) / length;
+    const dirY = (tipY - ball.y) / length;
+    const startX = ball.x + dirX * BALL_RADIUS;
+    const startY = ball.y + dirY * BALL_RADIUS;
+    // The shaft stops where the head begins, so the tip stays sharp.
+    const headLength = Math.min(ARROW_HEAD_LENGTH, length - BALL_RADIUS);
+    const baseX = tipX - dirX * headLength;
+    const baseY = tipY - dirY * headLength;
+    const halfWidth = ARROW_HEAD_WIDTH / 2;
+
+    const shaft = new Path2D();
+    shaft.moveTo(startX, startY);
+    shaft.lineTo(baseX, baseY);
+
+    const head = new Path2D();
+    head.moveTo(tipX, tipY);
+    head.lineTo(baseX - dirY * halfWidth, baseY + dirX * halfWidth);
+    head.lineTo(baseX + dirY * halfWidth, baseY - dirX * halfWidth);
+    head.closePath();
+
+    // A dark outline keeps the arrow visible on light cloth and over balls.
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = ARROW_OUTLINE_COLOR;
+    ctx.lineWidth = ARROW_WIDTH;
+    ctx.stroke(shaft);
+    ctx.stroke(head);
+
+    ctx.strokeStyle = ARROW_COLOR;
+    ctx.fillStyle = ARROW_COLOR;
+    ctx.lineWidth = ARROW_WIDTH;
+    ctx.stroke(shaft);
+    ctx.fill(head);
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+}
+
+function drawArrows() {
+    arrows.forEach(drawArrow);
+    if (draftArrow) drawArrow(draftArrow);
+}
+
 // Previews where a click would place the selected ball.
 function drawGhostBall() {
-    if (!cursor) return;
+    if (!cursor || arrowModeCheckbox.checked) return;
 
     const ghost = findPlacement(cursor.x, cursor.y, selectedColor);
     if (!ghost) return;
@@ -338,6 +402,7 @@ function drawPool() {
     drawDiamonds();
     drawPockets();
     drawBalls();
+    drawArrows();
     drawGhostBall();
 }
 
@@ -417,6 +482,7 @@ function placeBall(x, y, color) {
     if (!ball) return;
 
     balls = [...ballsKeptWhenPlacing(color), ball];
+    removeOrphanedArrows();
     drawPool();
 }
 
@@ -430,7 +496,74 @@ function toCanvasPoint(event) {
     };
 }
 
+// Arrows belong to a ball, so they go when it's cleared or replaced.
+function removeOrphanedArrows() {
+    arrows = arrows.filter(arrow => balls.includes(arrow.ball) && (!arrow.target || balls.includes(arrow.target)));
+}
+
+// Returns the ball nearest the point, if the point is on or just around it.
+// `exclude` is skipped, e.g. the ball an arrow starts from.
+function findBallAt(x, y, exclude = null) {
+    let nearest = null;
+    let nearestDistance = BALL_RADIUS + ARROW_GRAB_MARGIN;
+
+    balls.forEach(ball => {
+        if (ball === exclude) return;
+        const distance = Math.hypot(ball.x - x, ball.y - y);
+        if (distance <= nearestDistance) {
+            nearest = ball;
+            nearestDistance = distance;
+        }
+    });
+    return nearest;
+}
+
+canvas.addEventListener('pointerdown', event => {
+    if (!arrowModeCheckbox.checked || !event.isPrimary) return;
+
+    const point = toCanvasPoint(event);
+    const ball = findBallAt(point.x, point.y);
+    if (!ball) return;
+
+    canvas.setPointerCapture(event.pointerId);
+    draftArrow = { ball, ...point, target: null };
+    drawPool();
+});
+
+// Works out where an arrow from `ball` dragged to `point` ends. Over another
+// ball, the tip snaps to that ball's near edge, aimed at its centre.
+function arrowTip(ball, point) {
+    const target = findBallAt(point.x, point.y, ball);
+    if (!target) {
+        // Keeps the tip on the canvas, so the head is never cut off.
+        return { x: clamp(point.x, 0, WIDTH), y: clamp(point.y, 0, HEIGHT), target: null };
+    }
+
+    const distance = Math.hypot(target.x - ball.x, target.y - ball.y);
+    return {
+        x: target.x - ((target.x - ball.x) / distance) * BALL_RADIUS,
+        y: target.y - ((target.y - ball.y) / distance) * BALL_RADIUS,
+        target
+    };
+}
+
+function finishArrow(event, keep) {
+    if (!draftArrow || !event.isPrimary) return;
+
+    const { ball, x, y } = draftArrow;
+    if (keep && Math.hypot(x - ball.x, y - ball.y) >= MIN_ARROW_LENGTH) {
+        arrows = [...arrows, draftArrow];
+    }
+    draftArrow = null;
+    drawPool();
+}
+
+canvas.addEventListener('pointerup', event => finishArrow(event, true));
+canvas.addEventListener('pointercancel', event => finishArrow(event, false));
+
 canvas.addEventListener('click', event => {
+    if (arrowModeCheckbox.checked) return;
+
     const point = toCanvasPoint(event);
     placeBall(point.x, point.y, selectedColor);
     cursor = null;
@@ -439,6 +572,12 @@ canvas.addEventListener('click', event => {
 
 // Touch has no hover, so the ghost ball only follows a mouse or pen.
 canvas.addEventListener('pointermove', event => {
+    if (draftArrow && event.isPrimary) {
+        const point = toCanvasPoint(event);
+        draftArrow = { ball: draftArrow.ball, ...arrowTip(draftArrow.ball, point) };
+        drawPool();
+        return;
+    }
     if (event.pointerType === 'touch') return;
     cursor = toCanvasPoint(event);
     drawPool();
@@ -450,6 +589,12 @@ canvas.addEventListener('pointerleave', () => {
 });
 
 snapCheckbox.addEventListener('change', drawPool);
+
+arrowModeCheckbox.addEventListener('change', () => {
+    canvas.classList.toggle('arrow-mode', arrowModeCheckbox.checked);
+    draftArrow = null;
+    drawPool();
+});
 
 const ballPickers = document.querySelectorAll('.ball-picker');
 ballPickers.forEach(picker => {
@@ -464,11 +609,17 @@ ballPickers.forEach(picker => {
 // Clears the balls of one colour, or all of them if no colour is given.
 function clearBalls(color) {
     balls = color ? balls.filter(ball => ball.color !== color) : [];
+    removeOrphanedArrows();
     drawPool();
 }
 
 document.querySelectorAll('.clear-balls').forEach(button => {
     button.addEventListener('click', () => clearBalls(button.dataset.color));
+});
+
+document.getElementById('clear-arrows').addEventListener('click', () => {
+    arrows = [];
+    drawPool();
 });
 
 const themeButton = document.getElementById('theme');
