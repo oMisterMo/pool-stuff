@@ -32,6 +32,8 @@ const ARROW_HEAD_WIDTH = 8;
 const MIN_ARROW_LENGTH = BALL_RADIUS * 2;
 // Extra reach around a ball when starting an arrow, so it's easy to hit by touch.
 const ARROW_GRAB_MARGIN = 6;
+// Holding Shift snaps arrows to multiples of this angle (horizontal, vertical, diagonal).
+const ARROW_ANGLE_STEP = Math.PI / 4;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -134,7 +136,8 @@ let cursor = null;
 // Each arrow is { ball, x, y, target }: it starts at `ball` and points to (x, y).
 // `target` is the ball the tip snapped to, if any.
 let arrows = [];
-// The arrow being dragged out in arrow mode, if any.
+// The arrow being dragged out in arrow mode, if any. It also keeps the raw
+// `pointer` position, so the tip can be worked out again when Shift changes.
 let draftArrow = null;
 
 function drawRails() {
@@ -526,33 +529,84 @@ canvas.addEventListener('pointerdown', event => {
     if (!ball) return;
 
     canvas.setPointerCapture(event.pointerId);
-    draftArrow = { ball, ...point, target: null };
+    draftArrow = { ball, pointer: point, ...point, target: null };
     drawPool();
 });
 
+// Turns the drag from `ball` to `point` to the nearest snapped angle. The
+// pointer is projected onto that direction and kept on the canvas.
+function snapToAngle(ball, point) {
+    const dx = point.x - ball.x;
+    const dy = point.y - ball.y;
+    const angle = Math.round(Math.atan2(dy, dx) / ARROW_ANGLE_STEP) * ARROW_ANGLE_STEP;
+    const direction = { x: Math.cos(angle), y: Math.sin(angle) };
+
+    let length = Math.max(0, dx * direction.x + dy * direction.y);
+    if (Math.abs(direction.x) > 1e-9) {
+        length = Math.min(length, ((direction.x > 0 ? WIDTH : 0) - ball.x) / direction.x);
+    }
+    if (Math.abs(direction.y) > 1e-9) {
+        length = Math.min(length, ((direction.y > 0 ? HEIGHT : 0) - ball.y) / direction.y);
+    }
+
+    return {
+        point: { x: ball.x + direction.x * length, y: ball.y + direction.y * length },
+        direction
+    };
+}
+
 // Works out where an arrow from `ball` dragged to `point` ends. Over another
-// ball, the tip snaps to that ball's near edge, aimed at its centre.
-function arrowTip(ball, point) {
+// ball, the tip snaps to that ball's near edge, aimed at its centre. With a
+// fixed `direction` (Shift held), the tip instead stops where that line enters
+// the ball, and doesn't snap if the line misses it.
+function arrowTip(ball, point, direction = null) {
     const target = findBallAt(point.x, point.y, ball);
     if (!target) {
         // Keeps the tip on the canvas, so the head is never cut off.
         return { x: clamp(point.x, 0, WIDTH), y: clamp(point.y, 0, HEIGHT), target: null };
     }
 
-    const distance = Math.hypot(target.x - ball.x, target.y - ball.y);
-    return {
-        x: target.x - ((target.x - ball.x) / distance) * BALL_RADIUS,
-        y: target.y - ((target.y - ball.y) / distance) * BALL_RADIUS,
-        target
-    };
+    if (!direction) {
+        const distance = Math.hypot(target.x - ball.x, target.y - ball.y);
+        return {
+            x: target.x - ((target.x - ball.x) / distance) * BALL_RADIUS,
+            y: target.y - ((target.y - ball.y) / distance) * BALL_RADIUS,
+            target
+        };
+    }
+
+    // Where the line from the ball's centre first meets the target's edge
+    const along = (target.x - ball.x) * direction.x + (target.y - ball.y) * direction.y;
+    const offsetSquared = Math.hypot(target.x - ball.x, target.y - ball.y) ** 2 - along ** 2;
+    if (along <= 0 || offsetSquared > BALL_RADIUS ** 2) {
+        return { x: point.x, y: point.y, target: null };
+    }
+
+    const distance = along - Math.sqrt(BALL_RADIUS ** 2 - offsetSquared);
+    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target };
+}
+
+// Recalculates the tip of the arrow being drawn from the pointer position.
+function updateDraftArrow(snapAngle) {
+    const { ball, pointer } = draftArrow;
+    let tip;
+    if (snapAngle) {
+        const { point, direction } = snapToAngle(ball, pointer);
+        tip = arrowTip(ball, point, direction);
+    } else {
+        tip = arrowTip(ball, pointer);
+    }
+
+    draftArrow = { ball, pointer, ...tip };
+    drawPool();
 }
 
 function finishArrow(event, keep) {
     if (!draftArrow || !event.isPrimary) return;
 
-    const { ball, x, y } = draftArrow;
+    const { ball, x, y, target } = draftArrow;
     if (keep && Math.hypot(x - ball.x, y - ball.y) >= MIN_ARROW_LENGTH) {
-        arrows = [...arrows, draftArrow];
+        arrows = [...arrows, { ball, x, y, target }];
     }
     draftArrow = null;
     drawPool();
@@ -573,14 +627,20 @@ canvas.addEventListener('click', event => {
 // Touch has no hover, so the ghost ball only follows a mouse or pen.
 canvas.addEventListener('pointermove', event => {
     if (draftArrow && event.isPrimary) {
-        const point = toCanvasPoint(event);
-        draftArrow = { ball: draftArrow.ball, ...arrowTip(draftArrow.ball, point) };
-        drawPool();
+        draftArrow.pointer = toCanvasPoint(event);
+        updateDraftArrow(event.shiftKey);
         return;
     }
     if (event.pointerType === 'touch') return;
     cursor = toCanvasPoint(event);
     drawPool();
+});
+
+// Pressing or releasing Shift mid-drag updates the arrow without moving the pointer.
+['keydown', 'keyup'].forEach(type => {
+    window.addEventListener(type, event => {
+        if (event.key === 'Shift' && draftArrow) updateDraftArrow(event.shiftKey);
+    });
 });
 
 canvas.addEventListener('pointerleave', () => {
