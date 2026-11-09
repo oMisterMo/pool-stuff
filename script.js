@@ -34,6 +34,8 @@ const MIN_ARROW_LENGTH = BALL_RADIUS * 2;
 const ARROW_GRAB_MARGIN = 6;
 // Holding Shift snaps arrows to multiples of this angle (horizontal, vertical, diagonal).
 const ARROW_ANGLE_STEP = Math.PI / 4;
+// Arrows from this ball to another get a ghost ball showing where it makes contact.
+const CUE_BALL_COLOR = 'white';
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -133,9 +135,14 @@ let theme = loadTheme();
 let balls = [];
 let selectedColor = 'white';
 let cursor = null;
-// Each arrow is { ball, x, y, target }: it starts at `ball` and points to (x, y).
-// `target` is the ball the tip snapped to, if any.
+// Each arrow is { ball, x, y, target, ghost }: it starts at `ball` and points to (x, y).
+// `target` is the ball the tip snapped to, if any. For a cue ball arrow with a
+// target, `ghost` is the centre of the cue ball at contact, and (x, y) is on its edge.
 let arrows = [];
+// The cue ball arrow whose ghost ball is being dragged, if any, and the last
+// pointer position, so the ghost can be moved again when Shift changes.
+let ghostDragArrow = null;
+let ghostDragPointer = null;
 // The arrow being dragged out in arrow mode, if any. It also keeps the raw
 // `pointer` position, so the tip can be worked out again when Shift changes.
 let draftArrow = null;
@@ -379,9 +386,29 @@ function drawArrow(arrow) {
     ctx.lineJoin = 'miter';
 }
 
+// The cue ball at the moment of contact, drawn see-through with a dashed edge
+// so it reads differently from the placement preview.
+function drawContactGhostBall(ghost) {
+    ctx.globalAlpha = GHOST_BALL_ALPHA;
+    ctx.fillStyle = BALL_COLORS[CUE_BALL_COLOR];
+    ctx.beginPath();
+    ctx.arc(ghost.x, ghost.y, BALL_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = ARROW_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
 function drawArrows() {
-    arrows.forEach(drawArrow);
-    if (draftArrow) drawArrow(draftArrow);
+    const all = draftArrow ? [...arrows, draftArrow] : arrows;
+    all.forEach(arrow => {
+        if (arrow.ghost) drawContactGhostBall(arrow.ghost);
+    });
+    all.forEach(drawArrow);
 }
 
 // Previews where a click would place the selected ball.
@@ -521,17 +548,109 @@ function findBallAt(x, y, exclude = null) {
     return nearest;
 }
 
+// Returns the arrow whose contact ghost ball is nearest the point, if the
+// point is on or just around it.
+function findGhostArrowAt(x, y) {
+    let nearest = null;
+    let nearestDistance = BALL_RADIUS + ARROW_GRAB_MARGIN;
+
+    arrows.forEach(arrow => {
+        if (!arrow.ghost) return;
+        const distance = Math.hypot(arrow.ghost.x - x, arrow.ghost.y - y);
+        if (distance <= nearestDistance) {
+            nearest = arrow;
+            nearestDistance = distance;
+        }
+    });
+    return nearest;
+}
+
 canvas.addEventListener('pointerdown', event => {
     if (!arrowModeCheckbox.checked || !event.isPrimary) return;
 
     const point = toCanvasPoint(event);
     const ball = findBallAt(point.x, point.y);
+    const ghostArrow = findGhostArrowAt(point.x, point.y);
+
+    // A ghost ball sits against its object ball, so take whichever is closer.
+    if (ghostArrow && (!ball || Math.hypot(ghostArrow.ghost.x - point.x, ghostArrow.ghost.y - point.y) < Math.hypot(ball.x - point.x, ball.y - point.y))) {
+        canvas.setPointerCapture(event.pointerId);
+        ghostDragArrow = ghostArrow;
+        canvas.style.cursor = 'grabbing';
+        return;
+    }
     if (!ball) return;
 
     canvas.setPointerCapture(event.pointerId);
-    draftArrow = { ball, pointer: point, ...point, target: null };
+    draftArrow = { ball, pointer: point, ...point, target: null, ghost: null };
     drawPool();
 });
+
+// Where the cue ball's centre is when it touches `target`, on the side nearest
+// `point`. The angle is limited to cuts the cue ball can make without hitting
+// the target first: at most acos(2r / distance) either side of a full-ball hit.
+// With `snapAngle`, the ghost moves to the nearest multiple of ARROW_ANGLE_STEP
+// around the target that is still in range, if there is one.
+function limitGhostBall(cue, target, point, snapAngle = false) {
+    const contactDistance = BALL_RADIUS * 2;
+    const fullBallAngle = Math.atan2(cue.y - target.y, cue.x - target.x);
+    const maxCut = Math.acos(Math.min(1, contactDistance / Math.hypot(cue.x - target.x, cue.y - target.y)));
+    const offsetFrom = angle => {
+        const offset = angle - fullBallAngle;
+        return Math.atan2(Math.sin(offset), Math.cos(offset));
+    };
+
+    const offset = clamp(offsetFrom(Math.atan2(point.y - target.y, point.x - target.x)), -maxCut, maxCut);
+    let angle = fullBallAngle + offset;
+
+    if (snapAngle) {
+        // If the nearest snapped angle is out of range, the next one towards a full-ball hit may not be.
+        const nearest = Math.round(angle / ARROW_ANGLE_STEP) * ARROW_ANGLE_STEP;
+        const nextIn = nearest - Math.sign(offsetFrom(nearest)) * ARROW_ANGLE_STEP;
+        const inRange = candidate => Math.abs(offsetFrom(candidate)) <= maxCut + 1e-9;
+        angle = [nearest, nextIn].find(inRange) ?? angle;
+    }
+
+    return {
+        x: target.x + Math.cos(angle) * contactDistance,
+        y: target.y + Math.sin(angle) * contactDistance
+    };
+}
+
+// Where the cue ball touches `target` if it rolls along `direction`, or null if it misses.
+function aimGhostBall(cue, target, direction) {
+    const contactDistance = BALL_RADIUS * 2;
+    const along = (target.x - cue.x) * direction.x + (target.y - cue.y) * direction.y;
+    const offsetSquared = Math.hypot(target.x - cue.x, target.y - cue.y) ** 2 - along ** 2;
+    if (along <= 0 || offsetSquared > contactDistance ** 2) return null;
+
+    const distance = along - Math.sqrt(contactDistance ** 2 - offsetSquared);
+    return { x: cue.x + direction.x * distance, y: cue.y + direction.y * distance };
+}
+
+// The arrow from the cue ball stops at the near edge of its ghost ball.
+function cueArrowTip(cue, ghost) {
+    const distance = Math.hypot(ghost.x - cue.x, ghost.y - cue.y);
+    if (distance === 0) return { x: cue.x, y: cue.y };
+    return {
+        x: ghost.x - ((ghost.x - cue.x) / distance) * BALL_RADIUS,
+        y: ghost.y - ((ghost.y - cue.y) / distance) * BALL_RADIUS
+    };
+}
+
+function moveGhostBall(arrow, point, snapAngle) {
+    arrow.ghost = limitGhostBall(arrow.ball, arrow.target, point, snapAngle);
+    Object.assign(arrow, cueArrowTip(arrow.ball, arrow.ghost));
+    drawPool();
+}
+
+function finishGhostDrag(event) {
+    if (!ghostDragArrow || !event.isPrimary) return false;
+    ghostDragArrow = null;
+    ghostDragPointer = null;
+    canvas.style.cursor = '';
+    return true;
+}
 
 // Turns the drag from `ball` to `point` to the nearest snapped angle. The
 // pointer is projected onto that direction and kept on the canvas.
@@ -558,12 +677,20 @@ function snapToAngle(ball, point) {
 // Works out where an arrow from `ball` dragged to `point` ends. Over another
 // ball, the tip snaps to that ball's near edge, aimed at its centre. With a
 // fixed `direction` (Shift held), the tip instead stops where that line enters
-// the ball, and doesn't snap if the line misses it.
+// the ball, and doesn't snap if the line misses it. From the cue ball, the tip
+// stops at a ghost ball touching the target instead.
 function arrowTip(ball, point, direction = null) {
     const target = findBallAt(point.x, point.y, ball);
     if (!target) {
         // Keeps the tip on the canvas, so the head is never cut off.
-        return { x: clamp(point.x, 0, WIDTH), y: clamp(point.y, 0, HEIGHT), target: null };
+        return { x: clamp(point.x, 0, WIDTH), y: clamp(point.y, 0, HEIGHT), target: null, ghost: null };
+    }
+
+    if (ball.color === CUE_BALL_COLOR) {
+        // Without Shift, start from a full-ball hit, aimed at the target's centre.
+        const ghost = direction ? aimGhostBall(ball, target, direction) : limitGhostBall(ball, target, ball);
+        if (!ghost) return { x: point.x, y: point.y, target: null, ghost: null };
+        return { ...cueArrowTip(ball, ghost), target, ghost };
     }
 
     if (!direction) {
@@ -571,7 +698,8 @@ function arrowTip(ball, point, direction = null) {
         return {
             x: target.x - ((target.x - ball.x) / distance) * BALL_RADIUS,
             y: target.y - ((target.y - ball.y) / distance) * BALL_RADIUS,
-            target
+            target,
+            ghost: null
         };
     }
 
@@ -579,11 +707,11 @@ function arrowTip(ball, point, direction = null) {
     const along = (target.x - ball.x) * direction.x + (target.y - ball.y) * direction.y;
     const offsetSquared = Math.hypot(target.x - ball.x, target.y - ball.y) ** 2 - along ** 2;
     if (along <= 0 || offsetSquared > BALL_RADIUS ** 2) {
-        return { x: point.x, y: point.y, target: null };
+        return { x: point.x, y: point.y, target: null, ghost: null };
     }
 
     const distance = along - Math.sqrt(BALL_RADIUS ** 2 - offsetSquared);
-    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target };
+    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target, ghost: null };
 }
 
 // Recalculates the tip of the arrow being drawn from the pointer position.
@@ -602,11 +730,11 @@ function updateDraftArrow(snapAngle) {
 }
 
 function finishArrow(event, keep) {
-    if (!draftArrow || !event.isPrimary) return;
+    if (finishGhostDrag(event) || !draftArrow || !event.isPrimary) return;
 
-    const { ball, x, y, target } = draftArrow;
+    const { ball, x, y, target, ghost } = draftArrow;
     if (keep && Math.hypot(x - ball.x, y - ball.y) >= MIN_ARROW_LENGTH) {
-        arrows = [...arrows, { ball, x, y, target }];
+        arrows = [...arrows, { ball, x, y, target, ghost }];
     }
     draftArrow = null;
     drawPool();
@@ -631,15 +759,24 @@ canvas.addEventListener('pointermove', event => {
         updateDraftArrow(event.shiftKey);
         return;
     }
+    if (ghostDragArrow && event.isPrimary) {
+        ghostDragPointer = toCanvasPoint(event);
+        moveGhostBall(ghostDragArrow, ghostDragPointer, event.shiftKey);
+        return;
+    }
     if (event.pointerType === 'touch') return;
     cursor = toCanvasPoint(event);
+    // Shows that a ghost ball can be dragged.
+    canvas.style.cursor = arrowModeCheckbox.checked && findGhostArrowAt(cursor.x, cursor.y) ? 'grab' : '';
     drawPool();
 });
 
-// Pressing or releasing Shift mid-drag updates the arrow without moving the pointer.
+// Pressing or releasing Shift mid-drag updates the arrow or ghost ball without moving the pointer.
 ['keydown', 'keyup'].forEach(type => {
     window.addEventListener(type, event => {
-        if (event.key === 'Shift' && draftArrow) updateDraftArrow(event.shiftKey);
+        if (event.key !== 'Shift') return;
+        if (draftArrow) updateDraftArrow(event.shiftKey);
+        if (ghostDragArrow && ghostDragPointer) moveGhostBall(ghostDragArrow, ghostDragPointer, event.shiftKey);
     });
 });
 
@@ -653,6 +790,9 @@ snapCheckbox.addEventListener('change', drawPool);
 arrowModeCheckbox.addEventListener('change', () => {
     canvas.classList.toggle('arrow-mode', arrowModeCheckbox.checked);
     draftArrow = null;
+    ghostDragArrow = null;
+    ghostDragPointer = null;
+    canvas.style.cursor = '';
     drawPool();
 });
 
