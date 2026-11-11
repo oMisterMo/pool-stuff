@@ -36,6 +36,11 @@ const ARROW_GRAB_MARGIN = 6;
 const ARROW_ANGLE_STEP = Math.PI / 4;
 // Arrows from this ball to another get a ghost ball showing where it makes contact.
 const CUE_BALL_COLOR = 'white';
+// Shown on a pocket while an arrow is dragged into it, for whether the cue ball can pot the ball there.
+const POT_VALID_COLOR = '#43A047';
+const POT_INVALID_COLOR = '#E53935';
+const POT_MARK_SIZE = 6;
+const POT_MARK_WIDTH = 3;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -135,8 +140,8 @@ let theme = loadTheme();
 let balls = [];
 let selectedColor = 'white';
 let cursor = null;
-// Each arrow is { ball, x, y, target, ghost }: it starts at `ball` and points to (x, y).
-// `target` is the ball the tip snapped to, if any. For a cue ball arrow with a
+// Each arrow is { ball, x, y, target, ghost, pocket }: it starts at `ball` and points to (x, y).
+// `target` is the ball the tip snapped to, if any, and `pocket` the pocket. For a cue ball arrow with a
 // target, `ghost` is the centre of the cue ball at contact, and (x, y) is on its edge.
 let arrows = [];
 // The cue ball arrow whose ghost ball is being dragged, if any, and the last
@@ -196,18 +201,25 @@ function drawGridLines() {
 }
 
 // The pocket openings, as circles. Used for drawing and for snapping arrows.
+// `mouth` is the line between the two cushion noses either side of the pocket,
+// where a ball leaves the playing surface.
 function getPockets() {
-    const { x, y, width, height, cushionWidth, cornerPocketRadius, sidePocketRadius } = poolTable;
+    const { x, y, width, height, cushionWidth, cornerPocketRadius, sidePocketRadius, cornerJaw, sideJaw } = poolTable;
     const cornerInset = 8;
     const sideInset = cushionWidth + 2;
+    const left = x;
+    const right = x + width;
+    const top = y;
+    const bottom = y + height;
+    const middle = x + width / 2;
 
     return [
-        { x: x - cornerInset, y: y - cornerInset, radius: cornerPocketRadius }, // Top-left
-        { x: x + width / 2, y: y - sideInset, radius: sidePocketRadius }, // Top-center
-        { x: x + width + cornerInset, y: y - cornerInset, radius: cornerPocketRadius }, // Top-right
-        { x: x - cornerInset, y: y + height + cornerInset, radius: cornerPocketRadius }, // Bottom-left
-        { x: x + width / 2, y: y + height + sideInset, radius: sidePocketRadius }, // Bottom-center
-        { x: x + width + cornerInset, y: y + height + cornerInset, radius: cornerPocketRadius } // Bottom-right
+        { x: left - cornerInset, y: top - cornerInset, radius: cornerPocketRadius, mouth: [{ x: left + cornerJaw, y: top }, { x: left, y: top + cornerJaw }] }, // Top-left
+        { x: middle, y: top - sideInset, radius: sidePocketRadius, mouth: [{ x: middle - sideJaw, y: top }, { x: middle + sideJaw, y: top }] }, // Top-center
+        { x: right + cornerInset, y: top - cornerInset, radius: cornerPocketRadius, mouth: [{ x: right - cornerJaw, y: top }, { x: right, y: top + cornerJaw }] }, // Top-right
+        { x: left - cornerInset, y: bottom + cornerInset, radius: cornerPocketRadius, mouth: [{ x: left + cornerJaw, y: bottom }, { x: left, y: bottom - cornerJaw }] }, // Bottom-left
+        { x: middle, y: bottom + sideInset, radius: sidePocketRadius, mouth: [{ x: middle - sideJaw, y: bottom }, { x: middle + sideJaw, y: bottom }] }, // Bottom-center
+        { x: right + cornerInset, y: bottom + cornerInset, radius: cornerPocketRadius, mouth: [{ x: right - cornerJaw, y: bottom }, { x: right, y: bottom - cornerJaw }] } // Bottom-right
     ];
 }
 
@@ -408,8 +420,48 @@ function drawContactGhostBall(ghost) {
     ctx.setLineDash([]);
 }
 
+// While an object ball's arrow is dragged into a pocket, marks the pocket with a
+// tick if the cue ball can cut it in, or a cross if not. Needs a cue ball on the table.
+function drawPotMark() {
+    if (!draftArrow?.pocket || draftArrow.ball.color === CUE_BALL_COLOR) return;
+    const cue = balls.find(ball => ball.color === CUE_BALL_COLOR);
+    if (!cue) return;
+
+    const { x, y } = draftArrow.pocket;
+    const size = POT_MARK_SIZE;
+    const canPot = pottingGhost(cue, draftArrow.ball, draftArrow) !== null;
+
+    ctx.strokeStyle = canPot ? POT_VALID_COLOR : POT_INVALID_COLOR;
+    ctx.lineWidth = POT_MARK_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (canPot) {
+        ctx.moveTo(x - size, y);
+        ctx.lineTo(x - size / 3, y + size * 2 / 3);
+        ctx.lineTo(x + size, y - size * 2 / 3);
+    } else {
+        ctx.moveTo(x - size, y - size);
+        ctx.lineTo(x + size, y + size);
+        ctx.moveTo(x + size, y - size);
+        ctx.lineTo(x - size, y + size);
+    }
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
+}
+
+// While an object ball's arrow is dragged into a pocket the cue ball can pot it
+// in, cue ball arrows onto that ball show their ghost at the potting angle. The
+// stored arrow is left alone until the drag finishes (`aimGhostsAtPocket`).
+function previewArrow(arrow) {
+    if (!draftArrow?.pocket || arrow.target !== draftArrow.ball || !arrow.ghost) return arrow;
+    const ghost = pottingGhost(arrow.ball, arrow.target, draftArrow);
+    return ghost ? { ...arrow, ...cueArrowTip(arrow.ball, ghost), ghost } : arrow;
+}
+
 function drawArrows() {
-    const all = draftArrow ? [...arrows, draftArrow] : arrows;
+    const all = (draftArrow ? [...arrows, draftArrow] : arrows).map(previewArrow);
     all.forEach(arrow => {
         if (arrow.ghost) drawContactGhostBall(arrow.ghost);
     });
@@ -438,6 +490,7 @@ function drawPool() {
     drawPockets();
     drawBalls();
     drawArrows();
+    drawPotMark();
     drawGhostBall();
 }
 
@@ -591,11 +644,19 @@ canvas.addEventListener('pointerdown', event => {
     drawPool();
 });
 
+// Whether a ball centred here sits fully on the playing surface, so a ghost
+// ball there isn't in a cushion.
+function isOnSurface(point) {
+    const clamped = clampToSurface(point.x, point.y);
+    return Math.hypot(clamped.x - point.x, clamped.y - point.y) < 1e-6;
+}
+
 // Where the cue ball's centre is when it touches `target`, on the side nearest
 // `point`. The angle is limited to cuts the cue ball can make without hitting
-// the target first: at most acos(2r / distance) either side of a full-ball hit.
+// the target first (at most acos(2r / distance) either side of a full-ball
+// hit), and to spots where the ghost ball stays on the playing surface.
 // With `snapAngle`, the ghost moves to the nearest multiple of ARROW_ANGLE_STEP
-// around the target that is still in range, if there is one.
+// around the target that is still allowed, if there is one.
 function limitGhostBall(cue, target, point, snapAngle = false) {
     const contactDistance = BALL_RADIUS * 2;
     const fullBallAngle = Math.atan2(cue.y - target.y, cue.x - target.x);
@@ -604,25 +665,45 @@ function limitGhostBall(cue, target, point, snapAngle = false) {
         const offset = angle - fullBallAngle;
         return Math.atan2(Math.sin(offset), Math.cos(offset));
     };
+    const ghostAt = offset => ({
+        x: target.x + Math.cos(fullBallAngle + offset) * contactDistance,
+        y: target.y + Math.sin(fullBallAngle + offset) * contactDistance
+    });
+    const isAllowed = offset => Math.abs(offset) <= maxCut + 1e-9 && isOnSurface(ghostAt(offset));
 
-    const offset = clamp(offsetFrom(Math.atan2(point.y - target.y, point.x - target.x)), -maxCut, maxCut);
-    let angle = fullBallAngle + offset;
+    // The allowed offsets are ranges whose ends are either the cut limits or
+    // where the ghost's circle around the target crosses a surface edge, so the
+    // nearest allowed offset is the wanted one or one of those ends. A full-ball
+    // hit (offset 0) is always allowed, as it lies between the cue ball and the target.
+    const wanted = clamp(offsetFrom(Math.atan2(point.y - target.y, point.x - target.x)), -maxCut, maxCut);
+    const { x: minX, y: minY } = clampToSurface(-Infinity, -Infinity);
+    const { x: maxX, y: maxY } = clampToSurface(Infinity, Infinity);
+    const edgeAngles = [];
+    [minX, maxX].forEach(edgeX => {
+        const cos = (edgeX - target.x) / contactDistance;
+        if (Math.abs(cos) <= 1) edgeAngles.push(Math.acos(cos), -Math.acos(cos));
+    });
+    [minY, maxY].forEach(edgeY => {
+        const sin = (edgeY - target.y) / contactDistance;
+        if (Math.abs(sin) <= 1) edgeAngles.push(Math.asin(sin), Math.PI - Math.asin(sin));
+    });
+    const candidates = [wanted, -maxCut, maxCut, 0, ...edgeAngles.map(offsetFrom)].filter(isAllowed);
+    let offset = candidates.reduce((best, candidate) => (Math.abs(candidate - wanted) < Math.abs(best - wanted) ? candidate : best));
 
     if (snapAngle) {
-        // If the nearest snapped angle is out of range, the next one towards a full-ball hit may not be.
-        const nearest = Math.round(angle / ARROW_ANGLE_STEP) * ARROW_ANGLE_STEP;
+        // If the nearest snapped angle isn't allowed, the next one towards a full-ball hit may be.
+        const nearest = Math.round((fullBallAngle + offset) / ARROW_ANGLE_STEP) * ARROW_ANGLE_STEP;
         const nextIn = nearest - Math.sign(offsetFrom(nearest)) * ARROW_ANGLE_STEP;
-        const inRange = candidate => Math.abs(offsetFrom(candidate)) <= maxCut + 1e-9;
-        angle = [nearest, nextIn].find(inRange) ?? angle;
+        offset = [nearest, nextIn].map(offsetFrom).find(isAllowed) ?? offset;
     }
 
-    return {
-        x: target.x + Math.cos(angle) * contactDistance,
-        y: target.y + Math.sin(angle) * contactDistance
-    };
+    // Edge crossings can be a hair outside the surface from rounding.
+    const ghost = ghostAt(offset);
+    return clampToSurface(ghost.x, ghost.y);
 }
 
-// Where the cue ball touches `target` if it rolls along `direction`, or null if it misses.
+// Where the cue ball touches `target` if it rolls along `direction`, or null if it misses
+// or would have to be in a cushion to touch it.
 function aimGhostBall(cue, target, direction) {
     const contactDistance = BALL_RADIUS * 2;
     const along = (target.x - cue.x) * direction.x + (target.y - cue.y) * direction.y;
@@ -630,7 +711,9 @@ function aimGhostBall(cue, target, direction) {
     if (along <= 0 || offsetSquared > contactDistance ** 2) return null;
 
     const distance = along - Math.sqrt(contactDistance ** 2 - offsetSquared);
-    return { x: cue.x + direction.x * distance, y: cue.y + direction.y * distance };
+    const ghost = { x: cue.x + direction.x * distance, y: cue.y + direction.y * distance };
+    // The ghost ball can't be in a cushion.
+    return isOnSurface(ghost) ? ghost : null;
 }
 
 // The arrow from the cue ball stops at the near edge of its ghost ball.
@@ -693,10 +776,40 @@ function findPocketAt(x, y) {
     return getPockets().find(pocket => Math.hypot(pocket.x - x, pocket.y - y) <= pocket.radius) ?? null;
 }
 
-// Over a pocket, the tip stops at the pocket's near edge so the head stays
-// visible against it. Aimed at its centre, or along a fixed `direction` (Shift
-// held), where it doesn't snap if the line misses the pocket.
+// Over a pocket, the tip stops on the pocket's mouth, so the arrow never
+// crosses a cushion. It aims where the line to the pocket's centre crosses the
+// mouth, moved in to keep a ball's width clear of the cushion noses. With a
+// fixed `direction` (Shift held), it doesn't snap unless that line goes through
+// the same gap. A ball already in the jaws aims at the pocket's near edge instead.
 function pocketTip(ball, pocket, direction) {
+    const [start, end] = pocket.mouth;
+    const mouthLength = Math.hypot(end.x - start.x, end.y - start.y);
+    const along = { x: (end.x - start.x) / mouthLength, y: (end.y - start.y) / mouthLength };
+    // Perpendicular to the mouth, pointing into the pocket
+    let inward = { x: -along.y, y: along.x };
+    if ((pocket.x - start.x) * inward.x + (pocket.y - start.y) * inward.y < 0) inward = { x: -inward.x, y: -inward.y };
+    // How far the ball is from the mouth line (negative when on the table side of it)
+    const side = (ball.x - start.x) * inward.x + (ball.y - start.y) * inward.y;
+    if (side < 0) {
+        const margin = Math.min(BALL_RADIUS, mouthLength / 2);
+        if (!direction) {
+            // Where the line to the pocket's centre crosses the mouth, kept within the gap
+            const toCenter = { x: pocket.x - ball.x, y: pocket.y - ball.y };
+            const fraction = -side / (toCenter.x * inward.x + toCenter.y * inward.y);
+            const crossing = { x: ball.x + toCenter.x * fraction, y: ball.y + toCenter.y * fraction };
+            const offset = clamp((crossing.x - start.x) * along.x + (crossing.y - start.y) * along.y, margin, mouthLength - margin);
+            const aim = { x: start.x + along.x * offset, y: start.y + along.y * offset };
+            return { ...aim, target: null, ghost: null, pocket };
+        }
+        const approach = direction.x * inward.x + direction.y * inward.y;
+        if (approach <= 0) return null;
+        const distance = -side / approach;
+        const tip = { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance };
+        const offset = (tip.x - start.x) * along.x + (tip.y - start.y) * along.y;
+        if (offset < margin - 1e-9 || offset > mouthLength - margin + 1e-9) return null;
+        return { ...tip, target: null, ghost: null, pocket };
+    }
+
     if (!direction) {
         const distance = Math.hypot(pocket.x - ball.x, pocket.y - ball.y);
         if (distance <= pocket.radius) return null;
@@ -704,15 +817,44 @@ function pocketTip(ball, pocket, direction) {
     }
     const distance = lineEntersCircle(ball, direction, pocket, pocket.radius);
     if (distance === null) return null;
-    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target: null, ghost: null };
+    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target: null, ghost: null, pocket };
+}
+
+// Where the cue ball must touch `target` to send it along `potArrow` (by
+// default the target's latest arrow into a pocket), or null if it has no such
+// arrow or the cut is too thin for the cue ball to make. The object ball leaves along the line from the
+// contact ghost through its centre, so the ghost sits behind it on that line.
+function pottingGhost(cue, target, potArrow = arrows.findLast(arrow => arrow.ball === target && arrow.pocket)) {
+    if (!potArrow) return null;
+
+    const length = Math.hypot(potArrow.x - target.x, potArrow.y - target.y);
+    const ghost = {
+        x: target.x - ((potArrow.x - target.x) / length) * BALL_RADIUS * 2,
+        y: target.y - ((potArrow.y - target.y) / length) * BALL_RADIUS * 2
+    };
+    // limitGhostBall leaves a reachable ghost where it is.
+    const limited = limitGhostBall(cue, target, ghost);
+    return Math.hypot(limited.x - ghost.x, limited.y - ghost.y) < 1e-6 ? ghost : null;
+}
+
+// Moves the ghost of every cue ball arrow onto `target` to the potting angle, if it can pot.
+function aimGhostsAtPocket(target) {
+    arrows.forEach(arrow => {
+        if (arrow.target !== target || !arrow.ghost) return;
+        const ghost = pottingGhost(arrow.ball, target);
+        if (!ghost) return;
+        arrow.ghost = ghost;
+        Object.assign(arrow, cueArrowTip(arrow.ball, ghost));
+    });
 }
 
 // Works out where an arrow from `ball` dragged to `point` ends. Over another
 // ball, the tip snaps to that ball's near edge, aimed at its centre. With a
 // fixed `direction` (Shift held), the tip instead stops where that line enters
 // the ball, and doesn't snap if the line misses it. From the cue ball, the tip
-// stops at a ghost ball touching the target instead. Over a pocket, the tip
-// snaps to the pocket's edge (`pocketTip`).
+// stops at a ghost ball touching the target instead, at the potting angle if
+// the target has an arrow into a pocket. Over a pocket, the tip snaps to the
+// pocket's edge (`pocketTip`).
 function arrowTip(ball, point, direction = null) {
     const target = findBallAt(point.x, point.y, ball);
     if (!target) {
@@ -724,8 +866,10 @@ function arrowTip(ball, point, direction = null) {
     }
 
     if (ball.color === CUE_BALL_COLOR) {
-        // Without Shift, start from a full-ball hit, aimed at the target's centre.
-        const ghost = direction ? aimGhostBall(ball, target, direction) : limitGhostBall(ball, target, ball);
+        // Without Shift, start from the potting angle, or else a full-ball hit aimed at the target's centre.
+        const ghost = direction
+            ? aimGhostBall(ball, target, direction)
+            : pottingGhost(ball, target) ?? limitGhostBall(ball, target, ball);
         if (!ghost) return { x: point.x, y: point.y, target: null, ghost: null };
         return { ...cueArrowTip(ball, ghost), target, ghost };
     }
@@ -764,9 +908,10 @@ function updateDraftArrow(snapAngle) {
 function finishArrow(event, keep) {
     if (finishGhostDrag(event) || !draftArrow || !event.isPrimary) return;
 
-    const { ball, x, y, target, ghost } = draftArrow;
+    const { ball, x, y, target, ghost, pocket = null } = draftArrow;
     if (keep && Math.hypot(x - ball.x, y - ball.y) >= MIN_ARROW_LENGTH) {
-        arrows = [...arrows, { ball, x, y, target, ghost }];
+        arrows = [...arrows, { ball, x, y, target, ghost, pocket }];
+        if (pocket) aimGhostsAtPocket(ball);
     }
     draftArrow = null;
     drawPool();
