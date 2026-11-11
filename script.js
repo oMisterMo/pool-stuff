@@ -195,14 +195,13 @@ function drawGridLines() {
     ctx.stroke();
 }
 
-function drawPockets() {
-    const { x, y, width, height, cushionWidth, cornerPocketRadius, sidePocketRadius, cornerJaw, sideJaw, sideJawTaper } = poolTable;
-    const cornerBack = cornerJaw - cushionWidth;
-    const sideBack = sideJaw - sideJawTaper;
+// The pocket openings, as circles. Used for drawing and for snapping arrows.
+function getPockets() {
+    const { x, y, width, height, cushionWidth, cornerPocketRadius, sidePocketRadius } = poolTable;
     const cornerInset = 8;
     const sideInset = cushionWidth + 2;
 
-    const pockets = [
+    return [
         { x: x - cornerInset, y: y - cornerInset, radius: cornerPocketRadius }, // Top-left
         { x: x + width / 2, y: y - sideInset, radius: sidePocketRadius }, // Top-center
         { x: x + width + cornerInset, y: y - cornerInset, radius: cornerPocketRadius }, // Top-right
@@ -210,9 +209,15 @@ function drawPockets() {
         { x: x + width / 2, y: y + height + sideInset, radius: sidePocketRadius }, // Bottom-center
         { x: x + width + cornerInset, y: y + height + cornerInset, radius: cornerPocketRadius } // Bottom-right
     ];
+}
+
+function drawPockets() {
+    const { x, y, width, height, cushionWidth, cornerJaw, sideJaw, sideJawTaper } = poolTable;
+    const cornerBack = cornerJaw - cushionWidth;
+    const sideBack = sideJaw - sideJawTaper;
 
     ctx.fillStyle = POCKET_COLOR;
-    pockets.forEach(pocket => {
+    getPockets().forEach(pocket => {
         ctx.beginPath();
         ctx.arc(pocket.x, pocket.y, pocket.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -674,14 +679,46 @@ function snapToAngle(ball, point) {
     };
 }
 
+// How far along `direction` (a unit vector) from `start` the line first meets
+// the circle, or null if it misses or the circle is behind.
+function lineEntersCircle(start, direction, center, radius) {
+    const along = (center.x - start.x) * direction.x + (center.y - start.y) * direction.y;
+    const offsetSquared = Math.hypot(center.x - start.x, center.y - start.y) ** 2 - along ** 2;
+    if (along <= 0 || offsetSquared > radius ** 2) return null;
+    return along - Math.sqrt(radius ** 2 - offsetSquared);
+}
+
+// Returns the pocket the point is over, if any.
+function findPocketAt(x, y) {
+    return getPockets().find(pocket => Math.hypot(pocket.x - x, pocket.y - y) <= pocket.radius) ?? null;
+}
+
+// Over a pocket, the tip stops at the pocket's near edge so the head stays
+// visible against it. Aimed at its centre, or along a fixed `direction` (Shift
+// held), where it doesn't snap if the line misses the pocket.
+function pocketTip(ball, pocket, direction) {
+    if (!direction) {
+        const distance = Math.hypot(pocket.x - ball.x, pocket.y - ball.y);
+        if (distance <= pocket.radius) return null;
+        direction = { x: (pocket.x - ball.x) / distance, y: (pocket.y - ball.y) / distance };
+    }
+    const distance = lineEntersCircle(ball, direction, pocket, pocket.radius);
+    if (distance === null) return null;
+    return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target: null, ghost: null };
+}
+
 // Works out where an arrow from `ball` dragged to `point` ends. Over another
 // ball, the tip snaps to that ball's near edge, aimed at its centre. With a
 // fixed `direction` (Shift held), the tip instead stops where that line enters
 // the ball, and doesn't snap if the line misses it. From the cue ball, the tip
-// stops at a ghost ball touching the target instead.
+// stops at a ghost ball touching the target instead. Over a pocket, the tip
+// snaps to the pocket's edge (`pocketTip`).
 function arrowTip(ball, point, direction = null) {
     const target = findBallAt(point.x, point.y, ball);
     if (!target) {
+        const pocket = findPocketAt(point.x, point.y);
+        const tip = pocket && pocketTip(ball, pocket, direction);
+        if (tip) return tip;
         // Keeps the tip on the canvas, so the head is never cut off.
         return { x: clamp(point.x, 0, WIDTH), y: clamp(point.y, 0, HEIGHT), target: null, ghost: null };
     }
@@ -704,13 +741,8 @@ function arrowTip(ball, point, direction = null) {
     }
 
     // Where the line from the ball's centre first meets the target's edge
-    const along = (target.x - ball.x) * direction.x + (target.y - ball.y) * direction.y;
-    const offsetSquared = Math.hypot(target.x - ball.x, target.y - ball.y) ** 2 - along ** 2;
-    if (along <= 0 || offsetSquared > BALL_RADIUS ** 2) {
-        return { x: point.x, y: point.y, target: null, ghost: null };
-    }
-
-    const distance = along - Math.sqrt(BALL_RADIUS ** 2 - offsetSquared);
+    const distance = lineEntersCircle(ball, direction, target, BALL_RADIUS);
+    if (distance === null) return { x: point.x, y: point.y, target: null, ghost: null };
     return { x: ball.x + direction.x * distance, y: ball.y + direction.y * distance, target, ghost: null };
 }
 
