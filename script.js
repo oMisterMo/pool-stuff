@@ -835,6 +835,12 @@ ballPickers.forEach(picker => {
     picker.addEventListener('click', () => {
         selectedColor = picker.dataset.color;
         ballPickers.forEach(other => other.classList.toggle('selected', other === picker));
+        // Picking a ball means placing it, so leave arrow mode. Setting `checked`
+        // doesn't fire `change`, so fire it to run the usual clean-up.
+        if (arrowModeCheckbox.checked) {
+            arrowModeCheckbox.checked = false;
+            arrowModeCheckbox.dispatchEvent(new Event('change'));
+        }
     });
 });
 
